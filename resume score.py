@@ -1,41 +1,56 @@
-import fitz  
-from pathlib import Path
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import pandas as pd
+# First, I am importing all the libraries I need
 
-# Step 1: Extract text from all job descriptions
-def extract_text_from_pdf(pdf_path):
+from pathlib import Path  # to work with files and folders
+import fitz  # this is PyMuPDF, used to read text from PDF files
+import pandas as pd  # to store and show scores in table format
+from sklearn.feature_extraction.text import TfidfVectorizer  # to convert text to numbers
+from sklearn.metrics.pairwise import cosine_similarity  # to compare texts and get matching score
+
+# I made a function to read text from a PDF file
+def read_pdf(file_path):
+    doc = fitz.open(file_path)  # open the PDF
     text = ""
-    with fitz.open(pdf_path) as doc:
-        for page in doc:
-            text += page.get_text()
-    return text.strip()
+    for page in doc:
+        text += page.get_text()  # get text from each page and add to one string
+    doc.close()
+    return text  # return the full text
 
-# Load job descriptions
-job_folder = Path("job description")
-job_files = sorted(job_folder.glob("*.pdf"))
-job_descriptions = [extract_text_from_pdf(jd) for jd in job_files]
-job_names = [jd.name for jd in job_files]
+# Now I set the folder where my resume and job description PDFs are kept
+resume_folder = Path("pdf_resumes")  # this folder should contain all the resume PDFs
+jd_folder = Path("job description")  # this folder should have job descriptions
 
-# Load resumes
-resume_folder = Path("pdf_resumes")
-resume_files = sorted(resume_folder.glob("*.pdf"))
-resumes = [extract_text_from_pdf(resume) for resume in resume_files]
-resume_names = [r.name for r in resume_files]
+# I collect all PDF file names in lists
+resume_files = list(resume_folder.glob("*.pdf"))
+jd_files = list(jd_folder.glob("*.pdf"))
 
-# Step 2: Score resumes for each job description
-scores = []
-for jd_text in job_descriptions:
-    documents = [jd_text] + resumes
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf = vectorizer.fit_transform(documents)
-    similarity = cosine_similarity(tfidf[0:1], tfidf[1:]).flatten()
-    scores.append([round(score * 100, 2) for score in similarity])
+# Now I read the text from all the resumes and job descriptions
+resume_texts = [read_pdf(file) for file in resume_files]
+jd_texts = [read_pdf(file) for file in jd_files]
 
-# Step 3: Format results
-df = pd.DataFrame(scores, index=[f"{i+1}. {name}" for i, name in enumerate(job_names)],
-                  columns=resume_names)
+# Combine all texts (job descriptions + resumes) in one list
+all_texts = jd_texts + resume_texts
 
-print("\n📊 Resume Matching Scores (%):\n")
-print(df)
+# I use TF-IDF to turn text into numbers
+# It ignores common words like "the", "is", etc.
+vectorizer = TfidfVectorizer(stop_words='english')
+tfidf_matrix = vectorizer.fit_transform(all_texts)
+
+# Now I separate the vectors: job description vectors and resume vectors
+jd_vectors = tfidf_matrix[:len(jd_texts)]  # first few are JDs
+resume_vectors = tfidf_matrix[len(jd_texts):]  # rest are resumes
+
+# Now I compare each job description to each resume using cosine similarity
+# It will give a score between 0 and 1 — so I multiply by 100 to get percentage
+match_scores = cosine_similarity(jd_vectors, resume_vectors) * 100
+
+# I want to show these scores nicely in a table
+# Each row is a job description, each column is a resume
+score_table = pd.DataFrame(
+    match_scores,
+    index=[f"JD_{i+1}" for i in range(len(jd_texts))],
+    columns=[f"Resume_{i+1}" for i in range(len(resume_texts))]
+)
+
+# Finally, I print the scores
+print("✅ Resume Matching Scores (%):\n")
+print(score_table.round(2))  # show only 2 decimal digits
